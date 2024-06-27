@@ -10,7 +10,7 @@ Operator to manage, control and operate the ServerFramework Eventsubscriptions f
 
 # Setup using K3d
 ### How to Run the operator
-``zsh
+```zsh
 brew install k3d
 k3d cluster create --api-port 6550 -p "8081:80@loadbalancer" --agents 1
 node api.js
