@@ -17,6 +17,7 @@
     "@kubernetes/client-node": "^0.21.0",
     "axios": "^1.7.2",
     "etcd3": "^1.1.2",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "http-rabbitmq-manager": "^0.0.4"
   }
 }

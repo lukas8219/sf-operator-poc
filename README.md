@@ -4,8 +4,10 @@ Operator to manage, control and operate the ServerFramework Eventsubscriptions f
 - Removes need for Redis and ephemeral storage
 - Makes it possible for IAM in Kubernetes to control access to eventsubscriptions
 - Automate removal of orphan queues in RabbitMQ
-- [TBD] Offers source-control of queue filters
-    - Could be done via exposing a HelmChart
+
+### Roadmap
+- Listen to RabbitMQ AMQP Resources changes and reconcile with CRD State
+- Externalize RabbitMQ Credentials and configs
 
 # Setup using K3d
 ### How to Run the operator

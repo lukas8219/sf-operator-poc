@@ -3,6 +3,13 @@ const Path = require('path');
 const https = require('https');
 const axios = require('axios');
 const { kebabize } = require('./utils');
+const RabbitMQClient = require('http-rabbitmq-manager');
+const { promisify } = require('util');
+
+/* TODO:
+Externalize credentials and configs
+*/
+const rabbitClient = RabbitMQClient.client();
 
 function log(){
     return console.log(...arguments);
@@ -40,15 +47,16 @@ module.exports = class EventSubscriptionsOperator extends Operator {
 
     async #watch(group, version, plural){
         try {
-            await this.watchResource(group, version, plural, (event) => {
+            await this.watchResource(group, version, plural, async (event) => {
                 switch(event.type) {
                     case ResourceEventType.Added:
                         this.logger.debug('Added', event.object);
+                        await this.createQueue(event);
                         this.handleResourceFinalizer(event, 'removeorphaned.luma.serverframework.com', this.handleOrphanedEventSubscription.bind(this));
                         /*
                         TODO:
-                        - Create RabbitMQ queue with `uuid` as argument
-                        - Create binding with `uuid` as argument
+                        - Create RabbitMQ queue with `uid` as argument
+                        - Create binding with `uid` as argument
                         */
                         break;
                     case ResourceEventType.Modified:
@@ -56,7 +64,7 @@ module.exports = class EventSubscriptionsOperator extends Operator {
                         this.handleResourceFinalizer(event, 'removeorphaned.luma.serverframework.com', this.handleOrphanedEventSubscription.bind(this));
                         /*
                         TODO:
-                        - If `name` changed, delete old queue (by uuid) and binding (by uuid)
+                        - If `name` changed, delete old queue (by uid) and binding (by uid)
                         - List all deployments replicas and call PUT -> /eventsubscription/:namespace/:name on each of them
                         */
                         break;
@@ -70,8 +78,36 @@ module.exports = class EventSubscriptionsOperator extends Operator {
         }
     }
 
+    async createQueue(event){
+        const { uid, name } = event.object.metadata;
+        const queueName = this.#createQueueName(event);
+        try {
+            await promisify(rabbitClient.createQueue).bind(rabbitClient)({ queue: queueName, vhost: '/', arguments: { 'eventsubscription-uid': uid } });
+            this.logger.info(`eventsubscription ${name} uid:${uid} -> Created RabbitMQ queue ${queueName}`);
+        } catch(err){
+            this.logger.error(`eventsubscription ${name} uid:${uid} -> Error creating RabbitMQ queue ${name}`, err);
+        }
+    }
+
+    async deleteQueue(event){
+        const { name, uid } = event.object.metadata;
+        const queueName = this.#createQueueName(event);
+        try {
+            await promisify(rabbitClient.deleteQueue).bind(rabbitClient)({ queue: queueName, vhost: '/' });
+            this.logger.info(`eventsubscription ${name} uid:${uid} -> Deleted RabbitMQ queue ${queueName}`);
+        } catch(err){
+            this.logger.error(`eventsubscription ${name} uid:${uid} -> Error deleting RabbitMQ queue ${name}`, err);
+        }
+    }
+
+    #createQueueName(event){
+        const { service, queue, apiNamespace } = event.object.spec;
+        return ['v4:eventsubscription', kebabize(apiNamespace), kebabize(service), kebabize(queue), 'queue'].join(':');
+    }
+
     async handleOrphanedEventSubscription(event){
         this.logger.debug('Removing orphaned event subscription', event.object);
+        await this.deleteQueue(event);
         this.setResourceFinalizers(event.meta, []);
         return true;
     }
