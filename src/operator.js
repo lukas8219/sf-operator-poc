@@ -18,34 +18,62 @@ module.exports = class EventSubscriptionsOperator extends Operator {
         })
     }
     async init(){
-        const crdFile = Path.resolve(__dirname, 'eventsubscriptions-crd.yaml');
-        const { group, versions, plural } = await this.registerCustomResourceDefinition(crdFile);
-        log(group, versions, plural);
-        this._group = group;
-        this._version = versions[versions.length-1];
-        this._plural = plural;
-        const apiUrl = this.getCustomResourceApiUri(this._group, this._version.name, this._plural, 'default');
-        const config = {
-            baseURL: apiUrl,
-            httpsAgent: new https.Agent({ rejectUnauthorized: false }),
-        };
-        await this.applyAxiosKubeConfigAuth(config);
-        this.__client = axios.create(config);
-        await this.watchResource(group, versions[versions.length-1].name, plural, (event) => {
-            switch(event.type) {
-                case ResourceEventType.Added:
-                    break;
-                case ResourceEventType.Modified:
-                    break;
-                    //handle modification
-                case ResourceEventType.Deleted:
-                    break;
-                    //handle deletion
-                default:
-                    //error
-                    break;
-            }
-        });
+        try {
+            const crdFile = Path.resolve(__dirname, '../manifests/eventsubscriptions-crd.yaml');
+            const { group, versions, plural } = await this.registerCustomResourceDefinition(crdFile);
+            this._group = group;
+            this._version = versions[versions.length-1];
+            this._plural = plural;
+            const apiUrl = this.getCustomResourceApiUri(this._group, this._version.name, this._plural, 'default');
+            const config = {
+                baseURL: apiUrl,
+                httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+            };
+            await this.applyAxiosKubeConfigAuth(config);
+            this.__client = axios.create(config);
+            await this.#watch(group, versions[versions.length-1].name, plural);
+        } catch(err){
+            this.logger.error('Error registering custom resource definition', err);
+            process.exit(1);
+        }
+    }
+
+    async #watch(group, version, plural){
+        try {
+            await this.watchResource(group, version, plural, (event) => {
+                switch(event.type) {
+                    case ResourceEventType.Added:
+                        this.logger.debug('Added', event.object);
+                        this.handleResourceFinalizer(event, 'removeorphaned.luma.serverframework.com', this.handleOrphanedEventSubscription.bind(this));
+                        /*
+                        TODO:
+                        - Create RabbitMQ queue with `uuid` as argument
+                        - Create binding with `uuid` as argument
+                        */
+                        break;
+                    case ResourceEventType.Modified:
+                        this.logger.debug('Modified', event.object);
+                        this.handleResourceFinalizer(event, 'removeorphaned.luma.serverframework.com', this.handleOrphanedEventSubscription.bind(this));
+                        /*
+                        TODO:
+                        - If `name` changed, delete old queue (by uuid) and binding (by uuid)
+                        - List all deployments replicas and call PUT -> /eventsubscription/:namespace/:name on each of them
+                        */
+                        break;
+                    default:
+                        //error
+                        break;
+                }
+            });
+        } catch(err){
+            this.logger.error('Error watching resource', err);
+        }
+    }
+
+    async handleOrphanedEventSubscription(event){
+        this.logger.debug('Removing orphaned event subscription', event.object);
+        this.setResourceFinalizers(event.meta, []);
+        return true;
     }
 
     async createEventSubscription({ namespace, service, queue, filters, hashsum }){

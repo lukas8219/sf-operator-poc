@@ -1,19 +1,18 @@
 # ServerFramework EventSubscriptions Operator
-Operator to manage, control and operate the ServerFramework Eventsubscriptions filters
+Operator to manage, control and operate the ServerFramework Eventsubscriptions filters. Exposing a CRD for a LumaQueue.
 - Visibility into filters via K8s
 - Removes need for Redis and ephemeral storage
-- Moves Access Control to K8s
+- Makes it possible for IAM in Kubernetes to control access to eventsubscriptions
 - Automate removal of orphan queues in RabbitMQ
 - [TBD] Offers source-control of queue filters
-- Replaceable implementation for local environment
-- Less cognitive load when handling PubSub filters
+    - Could be done via exposing a HelmChart
 
 # Setup using K3d
 ### How to Run the operator
 ```zsh
 brew install k3d
 k3d cluster create --api-port 6550 -p "8081:80@loadbalancer" --agents 1
-node api.js
+node src/api.js
 ```
 
 This should initilize the CRD and the local cluster

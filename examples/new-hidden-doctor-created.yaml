@@ -1,0 +1,12 @@
+apiVersion: luma.serverframework.com/v1
+kind: EventSubscription
+metadata:
+  name: new-hidden-doctor-created
+  finalizers:
+    - removeorphaned.luma.serverframework.com
+spec:
+  service: users-service
+  apiNamespace: api:doctors:create
+  queue: NewHiddenDoctorCreated
+  filters:
+    - "{ 'hidden': 'true' }"
