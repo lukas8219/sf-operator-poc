@@ -51,3 +51,8 @@ spec:
         - name: sf-operator
           image: lukas8219/sf-operator:latest
           imagePullPolicy: Always
+          env:
+            - name: SF_OPERATOR_RABBITMQ_HTTP_URI
+              value: http://guest:guest@rabbitmq.default.svc.cluster.local:15672
+            - name: SF_OPERATOR_RABBITMQ_VHOST
+              value: /

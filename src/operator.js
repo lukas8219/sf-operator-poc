@@ -6,10 +6,13 @@ const { kebabize } = require('./utils');
 const RabbitMQClient = require('http-rabbitmq-manager');
 const { promisify } = require('util');
 
-/* TODO:
-Externalize credentials and configs
-*/
-const rabbitClient = RabbitMQClient.client();
+const SF_OPERATOR_RABBITMQ_VHOST = process.env.SF_OPERATOR_RABBITMQ_VHOST || '/';
+const SF_OPERATOR_RABBITMQ_HTTP_URI = process.env.SF_OPERATOR_RABBITMQ_HTTP_URI || 'http://localhost:15672';
+const { username, password, hostname } = new URL(SF_OPERATOR_RABBITMQ_HTTP_URI);
+
+const rabbitClient = RabbitMQClient.client({ username, password, host: hostname, vhost: SF_OPERATOR_RABBITMQ_VHOST });
+
+log(`RabbitMQ client initialized hostname: ${hostname}, vhost: ${SF_OPERATOR_RABBITMQ_VHOST}`);
 
 function log(){
     return console.log(...arguments);
@@ -53,19 +56,15 @@ module.exports = class EventSubscriptionsOperator extends Operator {
                         this.logger.debug('Added', event.object);
                         await this.createQueue(event);
                         this.handleResourceFinalizer(event, 'removeorphaned.luma.serverframework.com', this.handleOrphanedEventSubscription.bind(this));
-                        /*
-                        TODO:
-                        - Create RabbitMQ queue with `uid` as argument
-                        - Create binding with `uid` as argument
-                        */
                         break;
                     case ResourceEventType.Modified:
                         this.logger.debug('Modified', event.object);
                         this.handleResourceFinalizer(event, 'removeorphaned.luma.serverframework.com', this.handleOrphanedEventSubscription.bind(this));
+                        await this.updateQueue(event);
                         /*
                         TODO:
-                        - If `name` changed, delete old queue (by uid) and binding (by uid)
                         - List all deployments replicas and call PUT -> /eventsubscription/:namespace/:name on each of them
+                        Reconciliaton logic is not well-implemented. We need to setup proper way to handle missed/errors reconciliation
                         */
                         break;
                     default:
@@ -76,6 +75,21 @@ module.exports = class EventSubscriptionsOperator extends Operator {
         } catch(err){
             this.logger.error('Error watching resource', err);
         }
+    }
+
+    async updateQueue(event){
+        try {
+            const { uid } = event.object.metadata;
+            const queues = await promisify(rabbitClient.listQueues).bind(rabbitClient)({ vhost: '/' });
+            const toDeleteQueues = queues.filter((q) => q.arguments['eventsubscription-uid'] === uid);
+            await Promise.all(toDeleteQueues.map(async (queue) => {
+                await promisify(rabbitClient.deleteQueue).bind(rabbitClient)({ queue: queue.name, vhost: '/' });
+                this.logger.info(`eventsubscription ${event.object.metadata.name} uid:${uid} -> Deleted RabbitMQ queue ${queue.name}`);
+            }));          
+        } catch(err){
+            this.logger.error(`eventsubscription ${event.object.metadata.name} uid:${uid} -> Error deleting RabbitMQ queue`, err);
+        }
+        return this.createQueue(event);
     }
 
     async createQueue(event){
